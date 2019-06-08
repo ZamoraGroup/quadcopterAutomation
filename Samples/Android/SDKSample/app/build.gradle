@@ -6,7 +6,7 @@ android {
 
     defaultConfig {
         applicationId "com.parrot.sdksample"
-        minSdkVersion 16
+        minSdkVersion 23
         targetSdkVersion 24
         versionCode 1
         versionName "1.0"
@@ -29,5 +29,10 @@ dependencies {
     } else {
         compile 'com.parrot:arsdk:3.14.0'
     }
+    compile project(':pocketsphinx-android-5prealpha-release')
 
 }
+
+ant.importBuild 'assets.xml'
+preBuild.dependsOn(list, checksum)
+clean.dependsOn(clean_assets)

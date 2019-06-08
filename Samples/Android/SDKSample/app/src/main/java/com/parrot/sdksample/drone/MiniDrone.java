@@ -40,6 +40,7 @@ import java.util.List;
 public class MiniDrone {
     private static final String TAG = "MiniDrone";
 
+    // ECE_FIT: These functions are called on state change events.
     public interface Listener {
         /**
          * Called when the connection to the drone changes
@@ -364,12 +365,14 @@ public class MiniDrone {
         }
     }
 
+    // ECE_FIT: Maybe have google tell us what the battery % of the drone is?
     private void notifyBatteryChanged(int battery) {
         List<Listener> listenersCpy = new ArrayList<>(mListeners);
         for (Listener listener : listenersCpy) {
             listener.onBatteryChargeChanged(battery);
         }
     }
+
 
     private void notifyPilotingStateChanged(ARCOMMANDS_MINIDRONE_PILOTINGSTATE_FLYINGSTATECHANGED_STATE_ENUM state) {
         List<Listener> listenersCpy = new ArrayList<>(mListeners);
