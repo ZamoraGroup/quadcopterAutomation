@@ -51,11 +51,18 @@
         <activity
             android:name=".activity.MiniDroneActivity"
             android:screenOrientation="landscape"/>
+        <!--intent-filter>
+            <action android:name="android.intent.action.TAKE_OFF" />
+            <category android:name="android.intent.category.DEFAULT" />
+        </intent-filter-->
 
         <activity
             android:name=".activity.SwingDroneActivity"
             android:screenOrientation="landscape"/>
 
+        <meta-data
+            android:name="com.google.android.actions"
+            android:resource="@xml/actions" />
     </application>
 
 </manifest>

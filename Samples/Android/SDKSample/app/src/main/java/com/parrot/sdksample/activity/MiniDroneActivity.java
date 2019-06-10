@@ -1,15 +1,22 @@
 package com.parrot.sdksample.activity;
 
+import android.Manifest;
 import android.app.ProgressDialog;
 import android.content.DialogInterface;
 import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.os.Bundle;
+import android.support.annotation.NonNull;
+import android.support.v4.app.ActivityCompat;
+import android.support.v4.content.ContextCompat;
 import android.support.v7.app.AppCompatActivity;
 import android.util.Log;
 import android.view.MotionEvent;
 import android.view.View;
 import android.widget.Button;
 import android.widget.TextView;
+import android.widget.Toast;
+import android.os.AsyncTask;
 
 import com.parrot.arsdk.arcommands.ARCOMMANDS_MINIDRONE_MEDIARECORDEVENT_PICTUREEVENTCHANGED_ERROR_ENUM;
 import com.parrot.arsdk.arcommands.ARCOMMANDS_MINIDRONE_PILOTINGSTATE_FLYINGSTATECHANGED_STATE_ENUM;
@@ -21,9 +28,176 @@ import com.parrot.sdksample.R;
 import com.parrot.sdksample.drone.MiniDrone;
 import com.parrot.sdksample.view.H264VideoView;
 
-public class MiniDroneActivity extends AppCompatActivity {
+import java.io.File;
+import java.io.IOException;
+import java.util.HashMap;
+import java.lang.ref.WeakReference;
+
+import edu.cmu.pocketsphinx.Assets;
+import edu.cmu.pocketsphinx.Hypothesis;
+import edu.cmu.pocketsphinx.RecognitionListener;
+import edu.cmu.pocketsphinx.SpeechRecognizer;
+import edu.cmu.pocketsphinx.SpeechRecognizerSetup;
+
+import static android.widget.Toast.makeText;
+
+public class MiniDroneActivity extends AppCompatActivity
+        implements RecognitionListener {
+
+    // ECE_FIT: //START_OF_SPHINX_CODE////////////////////////////////////////////
+        // NOTE: This code currently works for take off only. Landing and other
+        // voice commands need to be added. The code architecture is very much a
+        // "we added a voice command to an existing drone control app". A better
+        // understanding of Android Activity 'Run' case sequencing and both the
+        // Sphinx and MiniDrone APIs should be implemented in future work.
+
+    private static final String KWS_SEARCH = "wakeup";
+
+    /* Keyword we are looking for to activate menu */
+    private static final String KEYPHRASE = "take off";  // ECE_FIT: Define key phrases here.
+    private static final String KEYPHRASE_LAND = "land"; // ECE_FIT: (future work) Landing key phrase.
+
+    /* Used to handle permission request */
+    private static final int PERMISSIONS_REQUEST_RECORD_AUDIO = 1;
+
+    private SpeechRecognizer recognizer;
+    private HashMap<String, Integer> captions;
+
+
+    private static class SetupTask extends AsyncTask<Void, Void, Exception> {
+        WeakReference<MiniDroneActivity> activityReference;
+        SetupTask(MiniDroneActivity activity) {
+            this.activityReference = new WeakReference<>(activity);
+        }
+        @Override
+        protected Exception doInBackground(Void... params) {
+            try {
+                Assets assets = new Assets(activityReference.get());
+                File assetDir = assets.syncAssets();
+                activityReference.get().setupRecognizer(assetDir); // ECE_FIT: This is where the voice recognition is set up.
+            } catch (IOException e) {
+                return e;
+            }
+            return null;
+        }
+        @Override
+        protected void onPostExecute(Exception result) {
+            if (result != null) {
+                ((TextView) activityReference.get().findViewById(R.id.caption_text))
+                        .setText("Failed to init recognizer " + result);
+            } else {
+                activityReference.get().switchSearch(KWS_SEARCH);
+            }
+        }
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode,
+                                           @NonNull String[] permissions, @NonNull  int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+
+        /*if (requestCode == PERMISSIONS_REQUEST_RECORD_AUDIO) {
+            if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                // Recognizer initialization is a time-consuming and it involves IO,
+                // so we execute it in async task
+                new SetupTask(this).execute();
+            } else {
+                finish();
+            }
+        }*/
+    }
+
+    /**
+     * In partial result we get quick updates about current hypothesis. In
+     * keyword spotting mode we can react here, in other modes we need to wait
+     * for final result in onResult.
+     */
+    public void onPartialResult(Hypothesis hypothesis) {
+        if (hypothesis == null)
+            return;
+
+        String text = hypothesis.getHypstr();
+        if (text.equals(KEYPHRASE)) {
+            mMiniDrone.takeOff();       // ECE_FIT: Take off here.
+        }
+
+        if (text.equals(KEYPHRASE_LAND)) {
+            mMiniDrone.land();          // ECE_FIT: (future work) Land here.
+        }
+
+    }
+
+    /**
+     * This callback is called when we stop the recognizer.
+     */
+    public void onResult(Hypothesis hypothesis) {
+        if (hypothesis != null) {
+            String text = hypothesis.getHypstr();
+            makeText(getApplicationContext(), text, Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    // ECE_FIT: Does nothing.
+    public void onBeginningOfSpeech() {
+    }
+
+    /**
+     * We stop recognizer here to get a final result
+     */
+    // ECE_FIT: Does nothing.
+    public void onEndOfSpeech() {
+    }
+
+    private void switchSearch(String searchName) {
+        recognizer.stop();
+
+        // If we are not spotting, start listening with timeout (10000 ms or 10 seconds).
+        if (searchName.equals(KEYPHRASE))
+            recognizer.startListening(KEYPHRASE);
+        else
+            recognizer.startListening(KEYPHRASE, 10000);
+
+        // ECE_FIT: You have ten seconds to perform the voice commanded take off.
+        // Once voice take off is performed, you must wait the remainder of
+        // the 10 second window to resume normal button control of the drone.
+    }
+
+    private void setupRecognizer(File assetsDir) throws IOException {
+        // The recognizer can be configured to perform multiple searches
+        // of different kind and switch between them
+
+        recognizer = SpeechRecognizerSetup.defaultSetup()
+                .setAcousticModel(new File(assetsDir, "en-us-ptm"))
+                .setDictionary(new File(assetsDir, "cmudict-en-us.dict"))
+
+                .setRawLogDir(assetsDir) // To disable logging of raw audio comment out this call (takes a lot of space on the device)
+
+                .getRecognizer();
+        recognizer.addListener(this);
+
+        /* In your application you might not need to add all those searches.
+          They are added here for demonstration. You can leave just one.
+         */
+
+        // Create keyword-activation search.
+        recognizer.addKeyphraseSearch(KEYPHRASE, KEYPHRASE);
+        recognizer.addKeyphraseSearch(KEYPHRASE_LAND, KEYPHRASE_LAND);
+
+    }
+
+    @Override // ECE_FIT: Does nothing.
+    public void onError(Exception error) {
+
+    }
+
+    @Override // ECE_FIT: Does nothing.
+    public void onTimeout() {
+    }
+    // ECE_FIT: //END_SPHINX_CODE///////////////////////////////////////
+
+    // ECE_FIT: //STOCK_MINIDRONE_CODE_BELOW_HERE///////////////////////
     private static final String TAG = "MiniDroneActivity";
-    private MiniDrone mMiniDrone;
+    private MiniDrone mMiniDrone; // ECE_FIT: This is the MiniDrone object you work with in this controller app.
 
     private ProgressDialog mConnectionProgressDialog;
     private ProgressDialog mDownloadProgressDialog;
@@ -41,6 +215,15 @@ public class MiniDroneActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_minidrone);
+
+        // Check if user has given permission to record audio
+        int permissionCheck = ContextCompat.checkSelfPermission(getApplicationContext(), Manifest.permission.RECORD_AUDIO);
+        if (permissionCheck != PackageManager.PERMISSION_GRANTED) {
+            ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.RECORD_AUDIO}, PERMISSIONS_REQUEST_RECORD_AUDIO);
+            return;
+        }
+
+        new SetupTask(this).execute();
 
         initIHM();
 
@@ -92,6 +275,10 @@ public class MiniDroneActivity extends AppCompatActivity {
     @Override
     public void onDestroy()
     {
+        if (recognizer != null) {
+            recognizer.cancel();
+            recognizer.shutdown();
+        }
         mMiniDrone.dispose();
         super.onDestroy();
     }
@@ -105,6 +292,7 @@ public class MiniDroneActivity extends AppCompatActivity {
             }
         });
 
+        // ECE_FIT: This is where we take off from button inputs.
         mTakeOffLandBt = (Button) findViewById(R.id.takeOffOrLandBt);
         mTakeOffLandBt.setOnClickListener(new View.OnClickListener() {
             public void onClick(View v) {
