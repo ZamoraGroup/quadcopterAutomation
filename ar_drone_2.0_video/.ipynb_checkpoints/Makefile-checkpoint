@@ -1,0 +1,104 @@
+AR_DRONE_DIR:=/home/dlinano/ar-drone2.0/ARDrone_SDK_2_0_1
+AR_DRONE_VIDEO_DEMO:=$(AR_DRONE_DIR)/Examples/Linux/video_demo
+DEEPSTREAM_SDK:=/home/dlinano/deepstream_sdk_v4.0.2_jetson/sources
+SDK_PATH:=$(AR_DRONE_DIR)/ARDroneLib
+PC_TARGET=yes
+USE_LINUX=yes
+
+ifdef MYKONOS
+   include $(ARDRONE_CUSTOM_CONFIG)
+   include $(ARDRONE_BUILD_CONFIG)
+else
+   include $(SDK_PATH)/Soft/Build/custom.makefile
+   include $(SDK_PATH)/Soft/Build/config.makefile
+endif
+
+ifeq "$(RELEASE_BUILD)" "yes"
+   ARDRONE_TARGET_DIR=$(shell pwd)
+else
+   ARDRONE_TARGET_DIR=$(shell pwd)
+endif
+
+TARGET=ardrone_video_demo
+
+TARGET_DEVICE = $(shell gcc -dumpmachine | cut -f1 -d -)
+
+NVDS_VERSION:=4.0
+
+LIB_INSTALL_DIR?=/opt/nvidia/deepstream/deepstream-$(NVDS_VERSION)/lib/
+
+ifeq ($(TARGET_DEVICE),aarch64)
+  CFLAGS:= -DPLATFORM_TEGRA
+endif
+
+SRC_DIR:=$(AR_DRONE_VIDEO_DEMO)/Sources
+
+# Define application source files
+GENERIC_BINARIES_SOURCE_DIR:=$(SRC_DIR)
+
+GENERIC_BINARIES_COMMON_SOURCE_FILES+=\
+Video/pre_stage.c\
+Video/post_stage.c\
+Video/display_stage.c\
+$(wildcard *c)
+
+GENERIC_INCLUDES+=					\
+	$(SRC_DIR) \
+	$(LIB_DIR) \
+	$(SDK_PATH)/Soft/Common \
+	$(SDK_PATH)/Soft/Lib \
+    $(wildcard *.h) \
+    $(DEEPSTREAM_SDK)/includes
+    
+PKGS:= gstreamer-1.0
+
+GENERIC_TARGET_BINARIES_PREFIX=
+
+GENERIC_TARGET_BINARIES_DIR=$(ARDRONE_TARGET_DIR)
+
+GENERIC_BINARIES_SOURCE_ENTRYPOINTS+=			\
+   ardrone_testing_tool.c
+
+GENERIC_INCLUDES:=$(addprefix -I,$(GENERIC_INCLUDES))
+
+GENERIC_LIB_PATHS=-L$(GENERIC_TARGET_BINARIES_DIR)
+
+GENERIC_LIBS+=-lm -ldl -lpc_ardrone -lrt -lgtk-x11-2.0 -lgdk-x11-2.0 -lpangocairo-1.0 -latk-1.0 -lcairo -lgdk_pixbuf-2.0 -lgio-2.0 -lpangoft2-1.0 -lpango-1.0 -lfontconfig -lfreetype -lgstreamer-1.0 -lgobject-2.0 -lglib-2.0
+GENERIC_LIBS+= -L$(LIB_INSTALL_DIR) -lnvdsgst_meta -lnvds_meta \
+       -lgstrtspserver-1.0 -Wl,-rpath,$(LIB_INSTALL_DIR)
+
+SDK_FLAGS+="USE_APP=yes"
+SDK_FLAGS+="APP_ID=ardrone_lib"
+GENERIC_CFLAGS+= -lpthread -I/usr/include/gstreamer-1.0 -I/usr/include/glib-2.0 -I/usr/lib/aarch64-linux-gnu/glib-2.0/include
+
+export GENERIC_CFLAGS
+export GENERIC_LIBS
+export GENERIC_LIB_PATHS
+export GENERIC_INCLUDES
+export GENERIC_BINARIES_SOURCE_DIR
+export GENERIC_BINARIES_COMMON_SOURCE_FILES
+export GENERIC_TARGET_BINARIES_PREFIX
+export GENERIC_TARGET_BINARIES_DIR
+export GENERIC_BINARIES_SOURCE_ENTRYPOINTS
+
+# Bug fix ...
+export GENERIC_LIBRARY_SOURCE_DIR=$(GENERIC_BINARIES_SOURCE_DIR)
+
+
+.PHONY: $(TARGET) build_libs
+
+all: build_libs $(TARGET)
+
+$(TARGET):
+	@$(MAKE) -C $(SDK_PATH)/VP_SDK/Build $(TMP_SDK_FLAGS) $(SDK_FLAGS) $(MAKECMDGOALS) USE_LINUX=yes
+	mv $(ARDRONE_TARGET_DIR)/ardrone_testing_tool $(TARGET)
+	mv $(TARGET) $(ARDRONE_TARGET_DIR)/
+
+$(MAKECMDGOALS): build_libs
+	@$(MAKE) -C $(SDK_PATH)/VP_SDK/Build $(TMP_SDK_FLAGS) $(SDK_FLAGS) $(MAKECMDGOALS) USE_LINUX=yes
+
+build_libs:
+	@$(MAKE) -C $(SDK_PATH)/Soft/Build $(TMP_SDK_FLAGS) $(SDK_FLAGS) $(MAKECMDGOALS) USE_LINUX=yes
+    
+clean:
+	rm -rf $(OBJS) $(APP)
